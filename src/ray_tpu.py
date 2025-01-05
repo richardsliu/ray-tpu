@@ -27,6 +27,7 @@ import time
 class RayTpu:
   name: str
   num_hosts: int
+  chips_per_host: int
   head_ip: str
   topology: str
 
@@ -44,8 +45,10 @@ class RayTpuManager:
       time.sleep(3)
       tpu_name = ray.util.accelerators.tpu.get_current_pod_name()
       num_hosts = ray.util.accelerators.tpu.get_current_pod_worker_count()
+      # TODO: replace with ray.util.accelerators.tpu.get_num_tpu_chips_on_node
+      chips_per_host = ray._private.accelerators.TPUAcceleratorManager.get_current_node_num_accelerators()
       ip = socket.gethostbyname(socket.gethostname())
-      return tpu_name, num_hosts, ip
+      return tpu_name, num_hosts, chips_per_host, ip
 
     available_resources = ray.available_resources()
     logging.info("Ray available resources: %s", available_resources)
@@ -63,11 +66,12 @@ class RayTpuManager:
         metadata = ray.get(metadata_handles)
 
         resources[topology] = []
-        for tpu_name, num_hosts, head_ip in metadata:
+        for tpu_name, num_hosts, chips_per_host, head_ip in metadata:
           resources[topology].append(
               RayTpu(
                   name=tpu_name,
                   num_hosts=num_hosts,
+                  chips_per_host=chips_per_host,
                   head_ip=head_ip,
                   topology=topology,
               )
@@ -126,13 +130,13 @@ class RayTpuManager:
         # Schedule on the lead worker first to consume the HEAD resource
         handles += [
             actor_or_fn.options(
-                runtime_env={"env_vars": env_vars}, resources={"TPU": 4, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}
+                runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}
             ).remote(*args, **kwargs)
         ]
         time.sleep(1)
         # Schedule the remaining workers.
         handles += [
-            actor_or_fn.options(runtime_env={"env_vars": env_vars}, resources={"TPU": 4, tpu.name: 1}).remote(
+            actor_or_fn.options(runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1}).remote(
                 *args, **kwargs
             )
             for _ in range(tpu.num_hosts - 1)
@@ -141,10 +145,10 @@ class RayTpuManager:
       for tpu in tpus:
         # Schedule on the lead worker first to consume the HEAD resource
         handles += [
-            actor_or_fn.options(resources={"TPU": 4, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}).remote(*args, **kwargs)
+            actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}).remote(*args, **kwargs)
         ]
         time.sleep(1)
         handles += [
-            actor_or_fn.options(resources={"TPU": 4, tpu.name: 1}).remote(*args, **kwargs) for _ in range(tpu.num_hosts - 1)
+            actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1}).remote(*args, **kwargs) for _ in range(tpu.num_hosts - 1)
         ]
     return handles
