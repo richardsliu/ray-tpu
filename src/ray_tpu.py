@@ -15,6 +15,8 @@
 """Experimental utilities for running Ray with Cloud TPU."""
 
 import re
+import inspect
+from functools import partial
 import logging
 from typing import Any, Callable, List, Mapping, Optional, Type, Union
 import socket
@@ -36,10 +38,11 @@ class RayTpu:
 
 
 class RayTpuManager:
+  def __init__(self):
+    self.resources = {}
 
   def initialize(self):
     tpu_pattern = re.compile(TPU_HEAD_PATTERN)
-    self.resources = {}
 
     @ray.remote
     def _get_tpu_pod_metadata():
@@ -191,7 +194,7 @@ def _remote_func_wrapper(
     env: Optional[Mapping[str, Any]] = None,
     *f_args, **f_kwargs):
     return _manager.remote(
-        f=f,
+        actor_or_fn=f,
         topology=topology,
         multislice=multislice,
         env=env,
@@ -224,8 +227,8 @@ class _RemoteClassWrapper:
             def __repr__(self):
                 return f"{self._class_name}:{self._worker_name}"
 
-        self.instances = _manager.run(
-            f=_LabeledCls,
+        self.instances = _manager.remote(
+            actor_or_fn=_LabeledCls,
             topology=self.topology,
             multislice=self.multislice,
             env=self.env,
