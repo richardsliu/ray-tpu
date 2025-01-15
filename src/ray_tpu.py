@@ -127,48 +127,52 @@ class RayTpuManager:
     if len(topology) > 1:
       raise AssertionError("Only single topology types are supported")
 
-    tpu_id, count = topology.popitem()
+    topology_id, count = topology.popitem()
 
-    if not tpu_id in self.resources:
+    if not topology_id in self.resources:
       raise AssertionError(f"{tpu_id} is not a known topology type")
 
-    tpu = self.resources[tpu_id]
+    tpu_list = self.resources[topology_id]
 
 
-    if multislice:
-      logging.info("Scheduling with multislice.")
-      coordinator_port = 8081
-      mxla_env = {
-          "MEGASCALE_COORDINATOR_ADDRESS": f"{tpus[0].head_ip}:{coordinator_port}",
-          "MEGASCALE_NUM_SLICES": str(len(tpus)),
-          "MEGASCALE_PORT": f"{coordinator_port}",
-          "MEGASCALE_SLICE_ID": str(tpu_id),
-      }
-      env_vars = env | mxla_env
-      logging.debug("Env vars being set: %s", env_vars)
-      # Schedule on the lead worker first to consume the HEAD resource
-      handles += [
-          actor_or_fn.options(
-              runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}
-          ).remote(*args, **kwargs)
-      ]
-      time.sleep(1)
-      # Schedule the remaining workers.
-      handles += [
-          actor_or_fn.options(runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1}).remote(
-              *args, **kwargs
-          )
-          for _ in range(tpu.num_hosts - 1)
-      ]
-    else:
-      # Schedule on the lead worker first to consume the HEAD resource
-      handles += [
-          actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}).remote(*args, **kwargs)
-      ]
-      time.sleep(1)
-      handles += [
-          actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1}).remote(*args, **kwargs) for _ in range(tpu.num_hosts - 1)
-      ]
+    for i in range(count):
+      # TODO: Fix this
+      tpu = tpu_list[i]
+
+      if multislice:
+        logging.info("Scheduling with multislice.")
+        coordinator_port = 8081
+        mxla_env = {
+            "MEGASCALE_COORDINATOR_ADDRESS": f"{tpus[0].head_ip}:{coordinator_port}",
+            "MEGASCALE_NUM_SLICES": str(len(tpus)),
+            "MEGASCALE_PORT": f"{coordinator_port}",
+            "MEGASCALE_SLICE_ID": str(tpu_id),
+        }
+        env_vars = env | mxla_env
+        logging.debug("Env vars being set: %s", env_vars)
+        # Schedule on the lead worker first to consume the HEAD resource
+        handles += [
+            actor_or_fn.options(
+                runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}
+            ).remote(*args, **kwargs)
+        ]
+        time.sleep(1)
+        # Schedule the remaining workers.
+        handles += [
+            actor_or_fn.options(runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1}).remote(
+                *args, **kwargs
+            )
+            for _ in range(tpu.num_hosts - 1)
+        ]
+      else:
+        # Schedule on the lead worker first to consume the HEAD resource
+        handles += [
+            actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}).remote(*args, **kwargs)
+        ]
+        time.sleep(1)
+        handles += [
+            actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1}).remote(*args, **kwargs) for _ in range(tpu.num_hosts - 1)
+        ]
     return handles
 
 
