@@ -134,9 +134,11 @@ class RayTpuManager:
 
     tpu_list = self.resources[topology_id]
 
-
     for i in range(count):
-      # TODO: Fix this
+      # TODO: This is a naive scheduling algorithm that always pick the same
+      # TPUs. This won't work if we have n slices in the cluster but m are
+      # currently reserved, and we try to schedule from m + 1.
+      # To fix this we'll need Ray to be aware of the state of self.resources.
       tpu = tpu_list[i]
 
       if multislice:

@@ -9,29 +9,21 @@ import ray
 import ray_tpu
 
 
-
 @ray_tpu.remote(
     topology={"v4-16": 1},
 )
 class MyActor:
-    def __init__(self, a: str):
-        self._a = a
-
-    def print(self):
-        print(self._a)
+    def __init__(self, data: str):
+        self._data = data
 
     def my_task(self):
-        import jax
-        return jax.device_count()
-
+        return self._data
 
 @ray_tpu.remote(
     topology={"v4-16": 1},
 )
 def my_task():
-    import jax
-    return jax.device_count()
-
+    return "hello world"
 
 
 def test_get_available_resources():
@@ -46,5 +38,5 @@ def test_ray_task():
 
 def test_ray_actor():
     ray_tpu.init()
-    a = MyActor()
+    a = MyActor(data="hello from actor")
     ray.get(a.my_task())
