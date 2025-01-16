@@ -130,7 +130,7 @@ class RayTpuManager:
     topology_id, count = topology.popitem()
 
     if not topology_id in self.resources:
-      raise AssertionError(f"{tpu_id} is not a known topology type")
+      raise AssertionError(f"{topology_id} is not a known topology type")
 
     tpu_list = self.resources[topology_id]
 
@@ -223,13 +223,12 @@ class _RemoteClassWrapper:
         class_name = self.cls.__name__
         class _LabeledCls(self.cls):
             """A wrapper to cls with additional information."""
-            def __init__(self, worker_name: str, *args, **kwargs):
-                self._worker_name = worker_name
+            def __init__(self, *args, **kwargs):
                 self._class_name = class_name
                 super().__init__(*args, **kwargs)
 
             def __repr__(self):
-                return f"{self._class_name}:{self._worker_name}"
+                return f"{self._class_name}:worker"
 
         self.instances = _manager.remote(
             actor_or_fn=_LabeledCls,
