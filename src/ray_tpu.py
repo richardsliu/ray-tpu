@@ -70,6 +70,8 @@ class RayTpuManager:
           metadata_handles.append(_get_tpu_pod_metadata.options(resources={topology_key: 1}).remote())
         logging.debug("Gathering TPU pod metadata")
         metadata = ray.get(metadata_handles)
+        logging.debug(f"Metadata: {metadata}")
+
 
         self.resources[topology] = []
         for tpu_name, num_hosts, chips_per_host, head_ip in metadata:
@@ -221,19 +223,8 @@ class _RemoteClassWrapper:
         self.env = env
 
     def __call__(self, *args, **kwargs):
-        # Instantiate all actors
-        class_name = self.cls.__name__
-        class _LabeledCls(self.cls):
-            """A wrapper to cls with additional information."""
-            def __init__(self, *args, **kwargs):
-                self._class_name = class_name
-                super().__init__(*args, **kwargs)
-
-            def __repr__(self):
-                return f"{self._class_name}:worker"
-
         self.instances = _manager.remote(
-            actor_or_fn=_LabeledCls,
+            actor_or_fn=self.cls,
             topology=self.topology,
             multislice=self.multislice,
             env=self.env,
