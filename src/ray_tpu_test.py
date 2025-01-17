@@ -1,3 +1,11 @@
+"""
+Test needs to run on a Ray cluster with a v4-16.
+
+Should output something like:
+{'v4-16': [RayTpu(name='ricliu-v4-16', num_hosts=2, chips_per_host=4, head_ip='10.130.0.76', topology='v4-16')]}
+['hello world', 'hello world']
+['hello actor', 'hello actor']
+"""
 import ray
 import ray_tpu
 import logging
