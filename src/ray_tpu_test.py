@@ -1,12 +1,17 @@
-"""TODO: ricliu - DO NOT SUBMIT without either providing a detailed docstring or
-removing it altogether.
 """
+Test needs to run on a Ray cluster with a v4-16.
 
-
-from unittest import mock
-import pytest
+Should output something like:
+{'v4-16': [RayTpu(name='ricliu-v4-16', num_hosts=2, chips_per_host=4, head_ip='10.130.0.76', topology='v4-16')]}
+['hello world', 'hello world']
+['hello actor', 'hello actor']
+"""
 import ray
 import ray_tpu
+import logging
+
+logging.basicConfig(level=logging.DEBUG,  # Set the desired logging level
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
 @ray_tpu.remote(
@@ -25,18 +30,14 @@ class MyActor:
 def my_task():
     return "hello world"
 
+ray.init()
 
-def test_get_available_resources():
-    ray_tpu.init()
-    tpu_resources = ray_tpu.available_resources()
-
-
-def test_ray_task():
-    ray_tpu.init()
-    ray.get(my_task())
+ray_tpu.init()
 
 
-def test_ray_actor():
-    ray_tpu.init()
-    a = MyActor(data="hello from actor")
-    ray.get(a.my_task())
+print(ray_tpu.available_resources())
+
+print(ray.get(my_task()))
+
+a = MyActor(data="hello actor")
+print(ray.get(a.my_task()))

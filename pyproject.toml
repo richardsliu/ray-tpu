@@ -12,6 +12,8 @@ authors = [
 description = "An utility for running Ray with Cloud TPUs"
 readme = "README.md"
 requires-python = ">=3.8"
+log_cli = 1
+log_cli_level = "DEBUG"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
