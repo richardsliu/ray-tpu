@@ -8,7 +8,7 @@ running. Now let's try to use the cluster for some simple tasks.
 
 Let's start with a simple Ray task:
 
-```bash
+```python
 import ray
 import ray_tpu
 
@@ -48,7 +48,7 @@ the two TPU hosts.
 
 Now let's see if the same works for Ray actors.
 
-```bash
+```python
 import ray
 import ray_tpu
 
