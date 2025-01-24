@@ -26,6 +26,7 @@ from ray.util.placement_group import (
     placement_group_table,
     remove_placement_group,
 )
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from dataclasses import dataclass
 import time
 
@@ -173,12 +174,17 @@ class RayTpuManager:
     for i in range(count):
       tpu_head = f"TPU-{topology_id}-head"
       logging.info(f"Placement group {tpu_head} creating...")
-      pg = placement_group([{tpu_head: 1}])
+      pg = placement_group([{tpu_head: 1, "CPU": 1}])
       ray.get(pg.ready(), timeout=60)
       logging.info(f"Placement group {tpu_head} created.")
 
       tpu = self.fetch_metadata(topology_id, pg)
       logging.info(f"Fetched metadata: {tpu}")
+
+      remove_placement_group(pg)
+
+      # Wait until placement group is killed.
+      time.sleep(1)
 
       if multislice:
         logging.info("Scheduling with multislice.")
