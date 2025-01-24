@@ -21,6 +21,11 @@ import logging
 from typing import Any, Callable, List, Mapping, Optional, Type, Union
 import socket
 import ray
+from ray.util.placement_group import (
+    placement_group,
+    placement_group_table,
+    remove_placement_group,
+)
 from dataclasses import dataclass
 import time
 
@@ -131,17 +136,22 @@ class RayTpuManager:
 
     topology_id, count = topology.popitem()
 
-    if not topology_id in self.resources:
-      raise AssertionError(f"{topology_id} is not a known topology type")
+    # topology_id is in the form "{generation}-{cores}".
+    #
 
-    tpu_list = self.resources[topology_id]
+
 
     for i in range(count):
-      # TODO: This is a naive scheduling algorithm that always pick the same
-      # TPUs. This won't work if we have n slices in the cluster but m are
-      # currently reserved, and we try to schedule from m + 1.
-      # To fix this we'll need Ray to be aware of the state of self.resources.
-      tpu = tpu_list[i]
+      tpu_head = f"TPU-{topology_id}-head"
+      pg = placement_group([{tpu_head: 1}])
+      ray.get(pg.ready(), timeout=60)
+
+      # refresh data
+      self.initialize()
+
+      tpu_list = self.resources[topology_id]
+      tpu = tpu_list[0]
+
 
       if multislice:
         logging.info("Scheduling with multislice.")
