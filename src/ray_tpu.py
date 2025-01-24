@@ -40,7 +40,6 @@ class RayTpu:
   num_hosts: int
   chips_per_host: int
   head_ip: str
-  topology: str
 
 
 class RayTpuManager:
@@ -92,7 +91,7 @@ class RayTpuManager:
           )
 
 
-  def fetch_metadata(self, topology, pg):
+  def fetch_metadata(self, pgs):
     @ray.remote
     def _get_tpu_pod_metadata():
       """Gets the TPU metadata from TPU leaders."""
@@ -105,19 +104,22 @@ class RayTpuManager:
       ip = socket.gethostbyname(socket.gethostname())
       return tpu_name, num_hosts, chips_per_host, ip
 
-    metadata_handle = _get_tpu_pod_metadata.options(
-        scheduling_strategy=PlacementGroupSchedulingStrategy(placement_group=pg,)
-    ).remote()
-    tpu_name, num_hosts, chips_per_host, head_ip = ray.get(metadata_handle)
+    tpu_info = []
+    for pg in pgs:
+        metadata_handle = _get_tpu_pod_metadata.options(
+            scheduling_strategy=PlacementGroupSchedulingStrategy(placement_group=pg,)
+        ).remote()
+        tpu_name, num_hosts, chips_per_host, head_ip = ray.get(metadata_handle)
 
-
-    return RayTpu(
-          name=tpu_name,
-          num_hosts=num_hosts,
-          chips_per_host=chips_per_host,
-          head_ip=head_ip,
-          topology=topology,
+        tpu_info.append(
+                RayTpu(
+                    name=tpu_name,
+                    num_hosts=num_hosts,
+                    chips_per_host=chips_per_host,
+                    head_ip=head_ip,
+                )
         )
+    return tpu_info
 
 
 
@@ -169,38 +171,44 @@ class RayTpuManager:
     # topology_id is in the form "{generation}-{cores}".
     #
 
-
-
+    tpu_head = f"TPU-{topology_id}-head"
+    logging.info(f"Placement groups {tpu_head} are creating...")
+    pgs = []
     for i in range(count):
-      tpu_head = f"TPU-{topology_id}-head"
-      logging.info(f"Placement group {tpu_head} creating...")
       pg = placement_group([{tpu_head: 1, "CPU": 1}])
       ray.get(pg.ready(), timeout=60)
       logging.info(f"Placement group {tpu_head} created.")
+      pgs.append(pg)
 
-      tpu = self.fetch_metadata(topology_id, pg)
-      logging.info(f"Fetched metadata: {tpu}")
+    tpu_info = self.fetch_metadata(pgs)
+    logging.info(f"Fetched metadata: {tpu_info}")
 
+    for pg in pgs:
       remove_placement_group(pg)
 
-      # Wait until placement group is killed.
-      time.sleep(1)
+    time.sleep(1)
+
+    if len(tpu_info) != count:
+        raise AssertionError("Number of TPUs not equal to requested amount")
+
+    for i in range(count):
+      tpu = tpu_info[i]
 
       if multislice:
         logging.info("Scheduling with multislice.")
         coordinator_port = 8081
         mxla_env = {
-            "MEGASCALE_COORDINATOR_ADDRESS": f"{tpus[0].head_ip}:{coordinator_port}",
-            "MEGASCALE_NUM_SLICES": str(len(tpus)),
+            "MEGASCALE_COORDINATOR_ADDRESS": f"{tpu_info[0].head_ip}:{coordinator_port}",
+            "MEGASCALE_NUM_SLICES": str(len(tpu_info)),
             "MEGASCALE_PORT": f"{coordinator_port}",
-            "MEGASCALE_SLICE_ID": str(tpu_id),
+            "MEGASCALE_SLICE_ID": str(i),
         }
         env_vars = env | mxla_env
         logging.debug("Env vars being set: %s", env_vars)
         # Schedule on the lead worker first to consume the HEAD resource
         handles += [
             actor_or_fn.options(
-                runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}
+                runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1, tpu_head: 1}
             ).remote(*args, **kwargs)
         ]
         time.sleep(1)
@@ -214,7 +222,7 @@ class RayTpuManager:
       else:
         # Schedule on the lead worker first to consume the HEAD resource
         handles += [
-            actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}).remote(*args, **kwargs)
+            actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1, tpu_head: 1}).remote(*args, **kwargs)
         ]
         time.sleep(1)
         handles += [
