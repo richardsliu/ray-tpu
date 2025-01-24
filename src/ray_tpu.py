@@ -91,6 +91,35 @@ class RayTpuManager:
           )
 
 
+  def fetch_metadata(self, topology, pg):
+    @ray.remote
+    def _get_tpu_pod_metadata():
+      """Gets the TPU metadata from TPU leaders."""
+      # avoid race conditions
+      time.sleep(3)
+      tpu_name = ray.util.accelerators.tpu.get_current_pod_name()
+      num_hosts = ray.util.accelerators.tpu.get_current_pod_worker_count()
+      # TODO: replace with ray.util.accelerators.tpu.get_num_tpu_chips_on_node
+      chips_per_host = ray._private.accelerators.TPUAcceleratorManager.get_current_node_num_accelerators()
+      ip = socket.gethostbyname(socket.gethostname())
+      return tpu_name, num_hosts, chips_per_host, ip
+
+    metadata_handle = _get_tpu_pod_metadata.options(
+        scheduling_strategy=PlacementGroupSchedulingStrategy(placement_group=pg,)
+    ).remote()
+    tpu_name, num_hosts, chips_per_host, head_ip = ray.get(metadata_handle)
+
+
+    return RayTpu(
+          name=tpu_name,
+          num_hosts=num_hosts,
+          chips_per_host=chips_per_host,
+          head_ip=head_ip,
+          topology=topology,
+        )
+
+
+
   def get_available_resources(self) -> Mapping[str, RayTpu]:
     return self.resources
 
@@ -143,15 +172,13 @@ class RayTpuManager:
 
     for i in range(count):
       tpu_head = f"TPU-{topology_id}-head"
+      logging.info(f"Placement group {tpu_head} creating...")
       pg = placement_group([{tpu_head: 1}])
       ray.get(pg.ready(), timeout=60)
+      logging.info(f"Placement group {tpu_head} created.")
 
-      # refresh data
-      self.initialize()
-
-      tpu_list = self.resources[topology_id]
-      tpu = tpu_list[0]
-
+      tpu = self.fetch_metadata(topology_id, pg)
+      logging.info(f"Fetched metadata: {tpu}")
 
       if multislice:
         logging.info("Scheduling with multislice.")
