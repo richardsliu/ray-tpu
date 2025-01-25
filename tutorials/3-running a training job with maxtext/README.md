@@ -47,7 +47,6 @@ Next step is simply invoking this function call in our own main function:
 ```python
 def main(argv: Sequence[str]):
   ray.init(runtime_env=dict(worker_process_setup_hook=setup_loggers))
-  ray_tpu.init()
 
   logging.info(f"argv: {argv}")
 

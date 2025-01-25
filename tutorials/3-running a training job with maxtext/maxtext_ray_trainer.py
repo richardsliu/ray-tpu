@@ -30,7 +30,6 @@ def run_maxtext_train(argv: Sequence[str]):
 
 def main(argv: Sequence[str]):
   ray.init(runtime_env=dict(worker_process_setup_hook=setup_loggers))
-  ray_tpu.init()
 
   logging.info(f"argv: {argv}")
 
