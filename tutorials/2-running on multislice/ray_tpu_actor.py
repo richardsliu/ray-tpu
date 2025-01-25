@@ -8,7 +8,8 @@ logging.basicConfig(level=logging.DEBUG,  # Set the desired logging level
 
 
 @ray_tpu.remote(
-    topology={"v4-16": 1},
+    topology={"v4-16": 2},
+    multislice=True,
 )
 class MyActor:
     def __init__(self, data: str):

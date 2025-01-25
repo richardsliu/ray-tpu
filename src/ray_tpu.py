@@ -21,6 +21,12 @@ import logging
 from typing import Any, Callable, List, Mapping, Optional, Type, Union
 import socket
 import ray
+from ray.util.placement_group import (
+    placement_group,
+    placement_group_table,
+    remove_placement_group,
+)
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from dataclasses import dataclass
 import time
 
@@ -34,16 +40,11 @@ class RayTpu:
   num_hosts: int
   chips_per_host: int
   head_ip: str
-  topology: str
 
 
 class RayTpuManager:
-  def __init__(self):
-    self.resources = {}
 
-  def initialize(self):
-    tpu_pattern = re.compile(TPU_HEAD_PATTERN)
-
+  def fetch_metadata(self, pgs):
     @ray.remote
     def _get_tpu_pod_metadata():
       """Gets the TPU metadata from TPU leaders."""
@@ -56,38 +57,22 @@ class RayTpuManager:
       ip = socket.gethostbyname(socket.gethostname())
       return tpu_name, num_hosts, chips_per_host, ip
 
-    available_resources = ray.available_resources()
-    logging.info("Ray available resources: %s", available_resources)
-    for key, value in available_resources.items():
-      match = tpu_pattern.match(key)
-      if match:
-        topology = f"{match.group(1)}"
-        topology_key = key
-        num_tpu_pods = int(value)
-        logging.info("Found %d TPU pods of type: %s", num_tpu_pods, topology)
-        metadata_handles = []
-        for _ in range(num_tpu_pods):
-          metadata_handles.append(_get_tpu_pod_metadata.options(resources={topology_key: 1}).remote())
-        logging.debug("Gathering TPU pod metadata")
-        metadata = ray.get(metadata_handles)
-        logging.debug(f"Metadata: {metadata}")
+    tpu_info = []
+    for pg in pgs:
+        metadata_handle = _get_tpu_pod_metadata.options(
+            scheduling_strategy=PlacementGroupSchedulingStrategy(placement_group=pg,)
+        ).remote()
+        tpu_name, num_hosts, chips_per_host, head_ip = ray.get(metadata_handle)
 
-
-        self.resources[topology] = []
-        for tpu_name, num_hosts, chips_per_host, head_ip in metadata:
-          self.resources[topology].append(
-              RayTpu(
-                  name=tpu_name,
-                  num_hosts=num_hosts,
-                  chips_per_host=chips_per_host,
-                  head_ip=head_ip,
-                  topology=topology,
-              )
-          )
-
-
-  def get_available_resources(self) -> Mapping[str, RayTpu]:
-    return self.resources
+        tpu_info.append(
+                RayTpu(
+                    name=tpu_name,
+                    num_hosts=num_hosts,
+                    chips_per_host=chips_per_host,
+                    head_ip=head_ip,
+                )
+        )
+    return tpu_info
 
 
   def remote(
@@ -131,33 +116,46 @@ class RayTpuManager:
 
     topology_id, count = topology.popitem()
 
-    if not topology_id in self.resources:
-      raise AssertionError(f"{topology_id} is not a known topology type")
+    # topology_id is in the form "{generation}-{cores}".
 
-    tpu_list = self.resources[topology_id]
+    tpu_head = f"TPU-{topology_id}-head"
+    logging.info(f"Placement groups {tpu_head} are creating...")
+    pgs = []
+    for i in range(count):
+      pg = placement_group([{tpu_head: 1, "CPU": 1}])
+      ray.get(pg.ready(), timeout=600)
+      logging.info(f"Placement group {tpu_head} created.")
+      pgs.append(pg)
+
+    tpu_info = self.fetch_metadata(pgs)
+    logging.info(f"Fetched metadata: {tpu_info}")
+
+    for pg in pgs:
+      remove_placement_group(pg)
+
+    time.sleep(1)
+
+    if len(tpu_info) != count:
+        raise AssertionError("Number of TPUs not equal to requested amount")
 
     for i in range(count):
-      # TODO: This is a naive scheduling algorithm that always pick the same
-      # TPUs. This won't work if we have n slices in the cluster but m are
-      # currently reserved, and we try to schedule from m + 1.
-      # To fix this we'll need Ray to be aware of the state of self.resources.
-      tpu = tpu_list[i]
+      tpu = tpu_info[i]
 
       if multislice:
         logging.info("Scheduling with multislice.")
         coordinator_port = 8081
         mxla_env = {
-            "MEGASCALE_COORDINATOR_ADDRESS": f"{tpus[0].head_ip}:{coordinator_port}",
-            "MEGASCALE_NUM_SLICES": str(len(tpus)),
+            "MEGASCALE_COORDINATOR_ADDRESS": f"{tpu_info[0].head_ip}:{coordinator_port}",
+            "MEGASCALE_NUM_SLICES": str(len(tpu_info)),
             "MEGASCALE_PORT": f"{coordinator_port}",
-            "MEGASCALE_SLICE_ID": str(tpu_id),
+            "MEGASCALE_SLICE_ID": str(i),
         }
         env_vars = env | mxla_env
         logging.debug("Env vars being set: %s", env_vars)
         # Schedule on the lead worker first to consume the HEAD resource
         handles += [
             actor_or_fn.options(
-                runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}
+                runtime_env={"env_vars": env_vars}, resources={"TPU": tpu.chips_per_host, tpu.name: 1, tpu_head: 1}
             ).remote(*args, **kwargs)
         ]
         time.sleep(1)
@@ -171,7 +169,7 @@ class RayTpuManager:
       else:
         # Schedule on the lead worker first to consume the HEAD resource
         handles += [
-            actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1, f"TPU-{tpu.topology}-head": 1}).remote(*args, **kwargs)
+            actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1, tpu_head: 1}).remote(*args, **kwargs)
         ]
         time.sleep(1)
         handles += [
@@ -181,18 +179,6 @@ class RayTpuManager:
 
 
 _manager = RayTpuManager()
-
-
-def init():
-    logging.info("Initializing ray_tpu!")
-    if not ray.is_initialized():
-        ray.init()
-    _manager.initialize()
-
-
-def available_resources() -> Mapping[str, Any]:
-    """Returns a dict of the available TPU pod slices."""
-    return _manager.get_available_resources()
 
 
 def _remote_func_wrapper(

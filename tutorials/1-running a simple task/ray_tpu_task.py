@@ -1,5 +1,10 @@
 import ray
 import ray_tpu
+import logging
+
+
+logging.basicConfig(level=logging.DEBUG,  # Set the desired logging level
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
 @ray_tpu.remote(
@@ -9,10 +14,5 @@ def my_task():
     return "hello world"
 
 ray.init()
-
-ray_tpu.init()
-
-
-print(ray_tpu.available_resources())
 
 print(ray.get(my_task()))

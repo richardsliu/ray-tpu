@@ -21,11 +21,6 @@ def my_task():
 
 ray.init()
 
-ray_tpu.init()
-
-
-print(ray_tpu.available_resources())
-
 print(ray.get(my_task()))
 ```
 
@@ -36,7 +31,6 @@ that the function `my_task` should be scheduled on a single `v4-16` TPU slice.
 Running this code should produce:
 
 ```bash
-{'v4-16': [RayTpu(name='ray-ricliu-v4-16-worker-b3e869d0-tpu', num_hosts=2, chips_per_host=4, head_ip='10.130.0.10', topology='v4-16')]}
 ['hello world', 'hello world']
 ```
 
@@ -65,11 +59,6 @@ class MyActor:
 
 ray.init()
 
-ray_tpu.init()
-
-
-print(ray_tpu.available_resources())
-
 a = MyActor(data="hello actor")
 print(ray.get(a.my_task()))
 ```
@@ -81,9 +70,8 @@ scheduled on a single v4-16 slice.
 Running this code should produce the following:
 
 ```bash
-{'v4-16': [RayTpu(name='ray-ricliu-v4-16-worker-b3e869d0-tpu', num_hosts=2, chips_per_host=4, head_ip='10.130.0.10', topology='v4-16')]}
 ['hello actor', 'hello actor']
 ```
 
-In the following tutorial, we'll see how to leverage `ray-tpu` to run a
-distributed training job.
+In the following tutorial, we'll see how to leverage `ray-tpu` to run on
+multiple TPU slices.

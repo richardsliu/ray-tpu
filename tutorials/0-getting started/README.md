@@ -53,31 +53,7 @@ Demands:
  (no resource demands)
 ```
 
-Note that the Ray cluster has 8 TPUs as expected. There are also other custom
-resources provided by the machines in the cluster.
-
-Now let's use the `ray-tpu` library to detect the TPU topology. Start a python
-session on the Ray head:
-
-```bash
-$ python
-Python 3.10.12 (main, Nov  6 2024, 20:22:13) [GCC 11.4.0] on linux
-Type "help", "copyright", "credits" or "license" for more information.
->>> import ray_tpu
->>> ray_tpu.init()
-2025-01-18 01:45:23,388 INFO worker.py:1636 -- Connecting to existing Ray cluster at address: 10.130.0.139:6379...
-2025-01-18 01:45:23,400 INFO worker.py:1812 -- Connected to Ray cluster. View the dashboard at 10.130.0.139:8265
->>> ray_tpu.available_resources()
-{'v4-16': [RayTpu(name='ray-ricliu-v4-16-worker-b3e869d0-tpu', num_hosts=2, chips_per_host=4, head_ip='10.130.0.10', topology='v4-16')]}
-```
-
-The library should return the detected topology (`v4-16`), along with other
-metadata:
-  * num_hosts: the total number of TPU hosts in this topology (2)
-  * chips_per_host: the number of TPU chips on each host
-  * head_ip: the IP of the head worker (we'll come back to this in later
-    tutorials)
-
+Note that the Ray cluster has 8 TPUs as expected.
 
 In the next tutorial, we'll look at how to run a Ray task or actor using
 familiar Ray syntax.

@@ -32,10 +32,6 @@ def my_task():
 
 ray.init()
 
-ray_tpu.init()
-
-
-print(ray_tpu.available_resources())
 
 print(ray.get(my_task()))
 

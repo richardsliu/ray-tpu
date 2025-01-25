@@ -1,0 +1,60 @@
+# A unique identifier for the head node and workers of this cluster.
+cluster_name: cluster # MODIFY choose your cluster name
+max_workers: 2
+available_node_types:
+  # The ray head node is a CPU node
+  ray_head_default:
+    min_workers: 0
+    max_workers: 0
+    resources: { "CPU": 0 } # Don't change this
+    # Provider-specific config for this node type, e.g. instance type. By default
+    # Ray will auto-configure unspecified fields such as subnets and ssh-keys.
+    # For more documentation on available fields, see:
+    # https://cloud.google.com/compute/docs/reference/rest/v1/instances/insert
+    node_config:
+      machineType: n1-standard-16
+      disks:
+        - boot: true
+          autoDelete: true
+          type: PERSISTENT
+          initializeParams:
+            diskSizeGb: 50 # Increase this if you need more disk space
+            # See https://cloud.google.com/compute/docs/images for more images
+            sourceImage: projects/ubuntu-os-cloud/global/images/family/ubuntu-2204-lts
+  # The ray worker nodes are TPU nodes
+  ray_tpu:
+    min_workers: 2
+    max_workers: 2
+    resources: { "TPU": 4 } # MODIFY this to be the number of chips per host for your TPU type. Should be 4 for v4 and v5 and 8 for v4e and v5e
+    node_config:
+      acceleratorType: v4-16 # MODIFY this to be your TPU type
+      runtimeVersion: tpu-ubuntu2204-base
+provider: # MODIFY this section with your provider spec
+  type: gcp
+  region: us-central2 #MODIFY this with your region
+  availability_zone: us-central2-b #MODIFY this with your availability_zone
+  project_id: project #MODIFY this with your project id
+
+initialization_commands:
+  # Don't stall on ubuntu graphic...
+  - sudo sed -i 's/#$nrconf{restart} = '"'"'i'"'"';/$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf
+  - sudo add-apt-repository -y ppa:deadsnakes/ppa
+  - sudo apt-get update
+  - sudo apt-get install -y python3.10
+  - sudo apt-get install -y python3-pip python-is-python3
+# Install dependencies needed by both the head and worker nodes
+# If you missed some dependencies during the set up process, you can
+# install them later during runtime.
+setup_commands:
+  - pip install "ray[default]==2.40.0"
+  - pip install ray_tpu
+
+# Install dependecies needed only by the head node
+head_setup_commands:
+  - pip install google-api-python-client
+  - pip install 'jax[cpu]'
+# Install dependencies needed only by the worker node
+worker_setup_commands:
+  - pip install 'jax[tpu]' -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+# Specify the node type of the head node (as configured above).
+head_node_type: ray_head_default
