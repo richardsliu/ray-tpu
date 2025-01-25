@@ -86,5 +86,5 @@ print(ray.get(a.my_task()))
 Running this code should produce the following:
 
 ```bash
-['hello actor', 'hello actor']
+['hello actor', 'hello actor', 'hello actor', 'hello actor']
 ```
