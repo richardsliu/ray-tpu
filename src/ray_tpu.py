@@ -43,53 +43,6 @@ class RayTpu:
 
 
 class RayTpuManager:
-  def __init__(self):
-    self.resources = {}
-
-  def initialize(self):
-    tpu_pattern = re.compile(TPU_HEAD_PATTERN)
-
-    @ray.remote
-    def _get_tpu_pod_metadata():
-      """Gets the TPU metadata from TPU leaders."""
-      # avoid race conditions
-      time.sleep(3)
-      tpu_name = ray.util.accelerators.tpu.get_current_pod_name()
-      num_hosts = ray.util.accelerators.tpu.get_current_pod_worker_count()
-      # TODO: replace with ray.util.accelerators.tpu.get_num_tpu_chips_on_node
-      chips_per_host = ray._private.accelerators.TPUAcceleratorManager.get_current_node_num_accelerators()
-      ip = socket.gethostbyname(socket.gethostname())
-      return tpu_name, num_hosts, chips_per_host, ip
-
-    available_resources = ray.available_resources()
-    logging.info("Ray available resources: %s", available_resources)
-    for key, value in available_resources.items():
-      match = tpu_pattern.match(key)
-      if match:
-        topology = f"{match.group(1)}"
-        topology_key = key
-        num_tpu_pods = int(value)
-        logging.info("Found %d TPU pods of type: %s", num_tpu_pods, topology)
-        metadata_handles = []
-        for _ in range(num_tpu_pods):
-          metadata_handles.append(_get_tpu_pod_metadata.options(resources={topology_key: 1}).remote())
-        logging.debug("Gathering TPU pod metadata")
-        metadata = ray.get(metadata_handles)
-        logging.debug(f"Metadata: {metadata}")
-
-
-        self.resources[topology] = []
-        for tpu_name, num_hosts, chips_per_host, head_ip in metadata:
-          self.resources[topology].append(
-              RayTpu(
-                  name=tpu_name,
-                  num_hosts=num_hosts,
-                  chips_per_host=chips_per_host,
-                  head_ip=head_ip,
-                  topology=topology,
-              )
-          )
-
 
   def fetch_metadata(self, pgs):
     @ray.remote
@@ -120,11 +73,6 @@ class RayTpuManager:
                 )
         )
     return tpu_info
-
-
-
-  def get_available_resources(self) -> Mapping[str, RayTpu]:
-    return self.resources
 
 
   def remote(
@@ -169,7 +117,6 @@ class RayTpuManager:
     topology_id, count = topology.popitem()
 
     # topology_id is in the form "{generation}-{cores}".
-    #
 
     tpu_head = f"TPU-{topology_id}-head"
     logging.info(f"Placement groups {tpu_head} are creating...")
@@ -232,18 +179,6 @@ class RayTpuManager:
 
 
 _manager = RayTpuManager()
-
-
-def init():
-    logging.info("Initializing ray_tpu!")
-    if not ray.is_initialized():
-        ray.init()
-    _manager.initialize()
-
-
-def available_resources() -> Mapping[str, Any]:
-    """Returns a dict of the available TPU pod slices."""
-    return _manager.get_available_resources()
 
 
 def _remote_func_wrapper(
