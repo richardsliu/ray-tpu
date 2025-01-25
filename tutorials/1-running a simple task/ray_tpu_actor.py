@@ -1,5 +1,10 @@
 import ray
 import ray_tpu
+import logging
+
+
+logging.basicConfig(level=logging.DEBUG,  # Set the desired logging level
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 
 @ray_tpu.remote(
@@ -13,11 +18,6 @@ class MyActor:
         return self._data
 
 ray.init()
-
-ray_tpu.init()
-
-
-print(ray_tpu.available_resources())
 
 a = MyActor(data="hello actor")
 print(ray.get(a.my_task()))

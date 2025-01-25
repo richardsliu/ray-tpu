@@ -176,7 +176,7 @@ class RayTpuManager:
     pgs = []
     for i in range(count):
       pg = placement_group([{tpu_head: 1, "CPU": 1}])
-      ray.get(pg.ready(), timeout=60)
+      ray.get(pg.ready(), timeout=600)
       logging.info(f"Placement group {tpu_head} created.")
       pgs.append(pg)
 
