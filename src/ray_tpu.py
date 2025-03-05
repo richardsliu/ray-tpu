@@ -81,6 +81,7 @@ class RayTpuManager:
       topology: Optional[Mapping[str, int]] = None,
       multislice = False,
       env: Optional[Mapping[str, Any]] = None,
+      timeout: Optional[int] = 600,
       *args,
       **kwargs,
   ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
@@ -94,6 +95,7 @@ class RayTpuManager:
             If set to true, this injects the metadata needed to schedule a multislice workload.
             Else, this will be treated as individual pod slices.
         env: An optional base environment, as a dictionary.
+        timeout: Timeout in seconds for placement group creation. Defaults to 600.
 
     Returns:
         A list of ActorHandles or ObjectRefs.
@@ -123,7 +125,7 @@ class RayTpuManager:
     pgs = []
     for i in range(count):
       pg = placement_group([{tpu_head: 1, "CPU": 1}])
-      ray.get(pg.ready(), timeout=600)
+      ray.get(pg.ready(), timeout=timeout)
       logging.info(f"Placement group {tpu_head} created.")
       pgs.append(pg)
 
