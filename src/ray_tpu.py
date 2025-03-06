@@ -174,8 +174,9 @@ class RayTpuManager:
       env = {}
 
     handles = []
-    tpu_head = f"TPU-{topology_id}-head"  
+    tpu_head = f"TPU-{topology_id}-head"
     for tpu in tpu_info:
+      device_count = tpu.chips_per_host * tpu.num_hosts
       if multislice:
         logging.info("Scheduling with multislice.")
         coordinator_port = 8081
@@ -199,7 +200,7 @@ class RayTpuManager:
             actor_or_fn.options(runtime_env={"env_vars": env_vars}, resources={"TPU": 1, tpu.name: 1}).remote(
                 *args, **kwargs
             )
-            for _ in range(tpu.num_hosts - 1)
+            for _ in range(device_count - 1)
         ]
       else:
         # Schedule on the lead worker first to consume the HEAD resource
@@ -208,7 +209,7 @@ class RayTpuManager:
         ]
         time.sleep(1)
         handles += [
-            actor_or_fn.options(resources={"TPU": 1, tpu.name: 1}).remote(*args, **kwargs) for _ in range(tpu.num_hosts - 1)
+            actor_or_fn.options(resources={"TPU": 1, tpu.name: 1}).remote(*args, **kwargs) for _ in range(device_count - 1)
         ]
     return handles
 
