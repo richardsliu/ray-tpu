@@ -169,8 +169,49 @@ class RayTpuManager:
       *args,
       **kwargs,
   ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
-    # Not implemented 
-    pass
+  
+    if env is None:
+      env = {}
+
+    handles = []
+    tpu_head = f"TPU-{topology_id}-head"  
+    for tpu in tpu_info:
+      if multislice:
+        logging.info("Scheduling with multislice.")
+        coordinator_port = 8081
+        mxla_env = {
+            "MEGASCALE_COORDINATOR_ADDRESS": f"{tpu_info[0].head_ip}:{coordinator_port}",
+            "MEGASCALE_NUM_SLICES": str(len(tpu_info)),
+            "MEGASCALE_PORT": f"{coordinator_port}",
+            "MEGASCALE_SLICE_ID": str(i),
+        }
+        env_vars = env | mxla_env
+        logging.debug("Env vars being set: %s", env_vars)
+        # Schedule on the lead worker first to consume the HEAD resource
+        handles += [
+            actor_or_fn.options(
+                runtime_env={"env_vars": env_vars}, resources={"TPU": 1, tpu.name: 1, tpu_head: 1}
+            ).remote(*args, **kwargs)
+        ]
+        time.sleep(1)
+        # Schedule the remaining workers.
+        handles += [
+            actor_or_fn.options(runtime_env={"env_vars": env_vars}, resources={"TPU": 1, tpu.name: 1}).remote(
+                *args, **kwargs
+            )
+            for _ in range(tpu.num_hosts - 1)
+        ]
+      else:
+        # Schedule on the lead worker first to consume the HEAD resource
+        handles += [
+            actor_or_fn.options(resources={"TPU": 1, tpu.name: 1, tpu_head: 1}).remote(*args, **kwargs)
+        ]
+        time.sleep(1)
+        handles += [
+            actor_or_fn.options(resources={"TPU": 1, tpu.name: 1}).remote(*args, **kwargs) for _ in range(tpu.num_hosts - 1)
+        ]
+    return handles
+
 
   def remote(
       self,
