@@ -108,6 +108,7 @@ class RayTpuManager:
 
   def _remote_host_mode(
       self,
+      topology_id: str,
       actor_or_fn: Union[ray.actor.ActorClass, Type],
       tpu_info: List[Any],
       multislice = False,
@@ -115,12 +116,13 @@ class RayTpuManager:
       *args,
       **kwargs,
   ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
+  
     if env is None:
       env = {}
 
     handles = []
+    tpu_head = f"TPU-{topology_id}-head"  
     for tpu in tpu_info:
-      
       if multislice:
         logging.info("Scheduling with multislice.")
         coordinator_port = 8081
@@ -159,6 +161,7 @@ class RayTpuManager:
 
   def _remote_device_mode(
       self,
+      topology_id: str, 
       actor_or_fn: Union[ray.actor.ActorClass, Type],
       tpu_info: List[Any],
       multislice = False,
@@ -220,7 +223,8 @@ class RayTpuManager:
 
     if device_mode:
         return self._remote_device_mode(
-          actor_or_fn,
+          topology_id,
+          actor_or_fn, 
           tpu_info,
           multislice,
           env,
@@ -228,6 +232,7 @@ class RayTpuManager:
           kwargs)
     else:
         return self._remote_host_mode(
+          topology_id,
           actor_or_fn,
           tpu_info,
           multislice,
