@@ -228,8 +228,8 @@ class RayTpuManager:
           tpu_info,
           multislice,
           env,
-          args,
-          kwargs)
+          *args,
+          **kwargs)
     else:
         return self._remote_host_mode(
           topology_id,
@@ -237,8 +237,8 @@ class RayTpuManager:
           tpu_info,
           multislice,
           env,
-          args,
-          kwargs)        
+          *args,
+          **kwargs)        
 
 
 _manager = RayTpuManager()
