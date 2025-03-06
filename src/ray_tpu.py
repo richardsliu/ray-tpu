@@ -74,7 +74,11 @@ class RayTpuManager:
         )
     return tpu_info
 
-  def reserve(self, topology_id, count):
+  def reserve(
+      self,
+      topology_id: str,
+      count: int,
+      timeout: Optional[int] = 600):
     """
     This is a hacky way to reserve the topology. It utilizes Ray's
     existing ability to autoscale based on the "TPU-X-head" syntax
@@ -108,7 +112,6 @@ class RayTpuManager:
       tpu_info: List[Any],
       multislice = False,
       env: Optional[Mapping[str, Any]] = None,
-      timeout: Optional[int] = 600,
       *args,
       **kwargs,
   ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
@@ -160,7 +163,6 @@ class RayTpuManager:
       tpu_info: List[Any],
       multislice = False,
       env: Optional[Mapping[str, Any]] = None,
-      timeout: Optional[int] = 600,
       *args,
       **kwargs,
   ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
@@ -209,7 +211,7 @@ class RayTpuManager:
     # topology_id is in the form "{generation}-{cores}".
     # count is how many instances of each topology to create.
 
-    tpu_info = self.reserve(topology_id, count)
+    tpu_info = self.reserve(topology_id, count, timeout)
       
     time.sleep(1)
 
@@ -222,7 +224,6 @@ class RayTpuManager:
           tpu_info,
           multislice,
           env,
-          timeout,
           args,
           kwargs)
     else:
@@ -231,7 +232,6 @@ class RayTpuManager:
           tpu_info,
           multislice,
           env,
-          timeout,
           args,
           kwargs)        
 
