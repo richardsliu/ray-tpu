@@ -289,12 +289,14 @@ def _remote_func_wrapper(
     f: Callable[[Any], Any],
     topology: Optional[Mapping[str, int]] = None,
     multislice = False,
+    device_mode = False,
     env: Optional[Mapping[str, Any]] = None,
     *f_args, **f_kwargs):
     return _manager.remote(
         actor_or_fn=f,
         topology=topology,
         multislice=multislice,
+        device_mode=device_mode,
         env=env,
         *f_args, **f_kwargs
     )
@@ -306,10 +308,12 @@ class _RemoteClassWrapper:
         cls: type,
         topology: Optional[Mapping[str, int]] = None,
         multislice = False,
+        device_mode = False,
         env: Optional[Mapping[str, Any]] = None):
         self.cls = cls
         self.topology = topology
         self.multislice = multislice
+        self.device_mode = device_mode
         self.env = env
 
     def __call__(self, *args, **kwargs):
@@ -317,6 +321,7 @@ class _RemoteClassWrapper:
             actor_or_fn=self.cls,
             topology=self.topology,
             multislice=self.multislice,
+            device_mode=self.device_mode,
             env=self.env,
             *args, **kwargs)
         return self
@@ -337,6 +342,7 @@ class _RemoteClassWrapper:
 def remote(
     topology: Optional[Mapping[str, int]] = None,
     multislice = False,
+    device_mode = False,
     env: Optional[Mapping[str, Any]] = None,
 ):
     def decorator(f_or_c: Union[Callable[Any, Any], type]):
@@ -346,12 +352,14 @@ def remote(
                 f=f_or_c,
                 topology=topology,
                 multislice=multislice,
+                device_mode=device_mode,
                 env=env)
         elif inspect.isclass(f_or_c):
             return _RemoteClassWrapper(
                 f_or_c,
                 topology=topology,
                 multislice=multislice,
+                device_mode=device_mode,
                 env=env)
         else:
             raise ValueError(
