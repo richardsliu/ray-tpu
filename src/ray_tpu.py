@@ -74,52 +74,21 @@ class RayTpuManager:
         )
     return tpu_info
 
-
-  def remote(
+  def reserve(
       self,
-      actor_or_fn: Union[ray.actor.ActorClass, Type],
-      topology: Optional[Mapping[str, int]] = None,
-      multislice = False,
-      env: Optional[Mapping[str, Any]] = None,
-      timeout: Optional[int] = 600,
-      *args,
-      **kwargs,
-  ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
-    """Schedules an actor or function on a set of TPUs.
-
-    Args:
-        actor_or_fn: The definition of the actor, as a class or as a remote class, OR a function,
-            as a function or executable remote task.
-        topology: A dictionary representing the TPU topology, e.g. {"v6e-8": 1}
-        multislice: Whether or not to schedule this actor with multislice technology.
-            If set to true, this injects the metadata needed to schedule a multislice workload.
-            Else, this will be treated as individual pod slices.
-        env: An optional base environment, as a dictionary.
-        timeout: Timeout in seconds for placement group creation. Defaults to 600.
-
-    Returns:
-        A list of ActorHandles or ObjectRefs.
+      topology_id: str,
+      count: int,
+      timeout: Optional[int] = 600):
     """
-    if env is None:
-      env = {}
+    This is a hacky way to reserve the topology. It utilizes Ray's
+    existing ability to autoscale based on the "TPU-X-head" syntax
+    and then fetches the metadata from the placement group in order
+    to schedule the subsequent tasks. The placement group itself is
+    deleted once the metadata is fetched.
 
-    if isinstance(actor_or_fn, type):
-      actor_or_fn = ray.remote(actor_or_fn)
-    elif callable(actor_or_fn):
-      if not hasattr(actor_or_fn, "remote"):
-        actor_or_fn = ray.remote(actor_or_fn)
-    elif not isinstance(actor_or_fn, ray.actor.ActorClass):
-      raise AssertionError(f"`actor_or_fn` should be a class definition, ActorClass, or callable, got {type(actor_or_fn)}")
-
-    handles = []
-
-    if len(topology) > 1:
-      raise AssertionError("Only single topology types are supported")
-
-    topology_id, count = topology.popitem()
-
-    # topology_id is in the form "{generation}-{cores}".
-
+    The longer term plan is to replace this with the locality group
+    implementation.
+    """
     tpu_head = f"TPU-{topology_id}-head"
     logging.info(f"Placement groups {tpu_head} are creating...")
     pgs = []
@@ -135,14 +104,25 @@ class RayTpuManager:
     for pg in pgs:
       remove_placement_group(pg)
 
-    time.sleep(1)
+    return tpu_info
 
-    if len(tpu_info) != count:
-        raise AssertionError("Number of TPUs not equal to requested amount")
+  def _remote_host_mode(
+      self,
+      topology_id: str,
+      actor_or_fn: Union[ray.actor.ActorClass, Type],
+      tpu_info: List[Any],
+      multislice = False,
+      env: Optional[Mapping[str, Any]] = None,
+      *args,
+      **kwargs,
+  ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
+  
+    if env is None:
+      env = {}
 
-    for i in range(count):
-      tpu = tpu_info[i]
-
+    handles = []
+    tpu_head = f"TPU-{topology_id}-head"  
+    for tpu in tpu_info:
       if multislice:
         logging.info("Scheduling with multislice.")
         coordinator_port = 8081
@@ -178,6 +158,87 @@ class RayTpuManager:
             actor_or_fn.options(resources={"TPU": tpu.chips_per_host, tpu.name: 1}).remote(*args, **kwargs) for _ in range(tpu.num_hosts - 1)
         ]
     return handles
+
+  def _remote_device_mode(
+      self,
+      topology_id: str, 
+      actor_or_fn: Union[ray.actor.ActorClass, Type],
+      tpu_info: List[Any],
+      multislice = False,
+      env: Optional[Mapping[str, Any]] = None,
+      *args,
+      **kwargs,
+  ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
+    # Not implemented 
+    pass
+
+  def remote(
+      self,
+      actor_or_fn: Union[ray.actor.ActorClass, Type],
+      topology: Optional[Mapping[str, int]] = None,
+      multislice = False,
+      device_mode = False,
+      env: Optional[Mapping[str, Any]] = None,
+      timeout: Optional[int] = 600,
+      *args,
+      **kwargs,
+  ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
+    """Schedules an actor or function on a set of TPUs.
+
+    Args:
+        actor_or_fn: The definition of the actor, as a class or as a remote class, OR a function,
+            as a function or executable remote task.
+        topology: A dictionary representing the TPU topology, e.g. {"v6e-8": 1}
+        multislice: Whether or not to schedule this actor with multislice technology.
+            If set to true, this injects the metadata needed to schedule a multislice workload.
+            Else, this will be treated as individual pod slices.
+        env: An optional base environment, as a dictionary.
+        timeout: Timeout in seconds for placement group creation. Defaults to 600.
+
+    Returns:
+        A list of ActorHandles or ObjectRefs.
+    """
+    if isinstance(actor_or_fn, type):
+      actor_or_fn = ray.remote(actor_or_fn)
+    elif callable(actor_or_fn):
+      if not hasattr(actor_or_fn, "remote"):
+        actor_or_fn = ray.remote(actor_or_fn)
+    elif not isinstance(actor_or_fn, ray.actor.ActorClass):
+      raise AssertionError(f"`actor_or_fn` should be a class definition, ActorClass, or callable, got {type(actor_or_fn)}")
+
+    if len(topology) > 1:
+      raise AssertionError("Only single topology types are supported")
+
+    topology_id, count = topology.popitem()
+
+    # topology_id is in the form "{generation}-{cores}".
+    # count is how many instances of each topology to create.
+
+    tpu_info = self.reserve(topology_id, count, timeout)
+      
+    time.sleep(1)
+
+    if len(tpu_info) != count:
+        raise AssertionError("Number of TPUs not equal to requested amount")
+
+    if device_mode:
+        return self._remote_device_mode(
+          topology_id,
+          actor_or_fn, 
+          tpu_info,
+          multislice,
+          env,
+          *args,
+          **kwargs)
+    else:
+        return self._remote_host_mode(
+          topology_id,
+          actor_or_fn,
+          tpu_info,
+          multislice,
+          env,
+          *args,
+          **kwargs)        
 
 
 _manager = RayTpuManager()
