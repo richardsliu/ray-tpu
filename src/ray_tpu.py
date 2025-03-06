@@ -74,7 +74,34 @@ class RayTpuManager:
         )
     return tpu_info
 
+  def reserve(self, topology_id):
+    """
+    This is a hacky way to reserve the topology. It utilizes Ray's
+    existing ability to autoscale based on the "TPU-X-head" syntax
+    and then fetches the metadata from the placement group in order
+    to schedule the subsequent tasks. The placement group itself is
+    deleted once the metadata is fetched.
 
+    The longer term plan is to replace this with the locality group
+    implementation.
+    """
+    tpu_head = f"TPU-{topology_id}-head"
+    logging.info(f"Placement groups {tpu_head} are creating...")
+    pgs = []
+    for i in range(count):
+      pg = placement_group([{tpu_head: 1, "CPU": 1}])
+      ray.get(pg.ready(), timeout=timeout)
+      logging.info(f"Placement group {tpu_head} created.")
+      pgs.append(pg)
+
+    tpu_info = self.fetch_metadata(pgs)
+    logging.info(f"Fetched metadata: {tpu_info}")
+
+    for pg in pgs:
+      remove_placement_group(pg)
+
+    return tpu_info
+        
   def remote(
       self,
       actor_or_fn: Union[ray.actor.ActorClass, Type],
@@ -120,21 +147,8 @@ class RayTpuManager:
 
     # topology_id is in the form "{generation}-{cores}".
 
-    tpu_head = f"TPU-{topology_id}-head"
-    logging.info(f"Placement groups {tpu_head} are creating...")
-    pgs = []
-    for i in range(count):
-      pg = placement_group([{tpu_head: 1, "CPU": 1}])
-      ray.get(pg.ready(), timeout=timeout)
-      logging.info(f"Placement group {tpu_head} created.")
-      pgs.append(pg)
-
-    tpu_info = self.fetch_metadata(pgs)
-    logging.info(f"Fetched metadata: {tpu_info}")
-
-    for pg in pgs:
-      remove_placement_group(pg)
-
+    tpu_info = self.reserve(topology_id)
+      
     time.sleep(1)
 
     if len(tpu_info) != count:
