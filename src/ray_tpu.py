@@ -180,7 +180,7 @@ class RayTpuManager:
       device_count = tpu.chips_per_host * tpu.num_hosts
 
       # Init PJRT
-      init_handle = init_multiprocess.options(resources={"TPU": 1, tpu.name: 1}).remote()
+      init_handle = init_multiprocess.options(resources={"TPU": 1, tpu.name: 1}).remote(local_world_size=tpu.chips_per_host)
       ray.get(init_handle)
         
       if multislice:
