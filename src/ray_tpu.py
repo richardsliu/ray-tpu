@@ -169,8 +169,56 @@ class RayTpuManager:
       *args,
       **kwargs,
   ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
-    # Not implemented 
-    pass
+    from pjrt_util import init_multiprocess
+
+    if env is None:
+      env = {}
+
+    handles = []
+    tpu_head = f"TPU-{topology_id}-head"
+    for tpu in tpu_info:
+      device_count = tpu.chips_per_host * tpu.num_hosts
+
+      # Init PJRT
+      init_handle = init_multiprocess.options(resources={"TPU": 1, tpu.name: 1}).remote(local_world_size=tpu.chips_per_host)
+      ray.get(init_handle)
+        
+      if multislice:
+        logging.info("Scheduling with multislice.")
+        coordinator_port = 8081
+        mxla_env = {
+            "MEGASCALE_COORDINATOR_ADDRESS": f"{tpu_info[0].head_ip}:{coordinator_port}",
+            "MEGASCALE_NUM_SLICES": str(len(tpu_info)),
+            "MEGASCALE_PORT": f"{coordinator_port}",
+            "MEGASCALE_SLICE_ID": str(i),
+        }
+        env_vars = env | mxla_env
+        logging.debug("Env vars being set: %s", env_vars)
+        # Schedule on the lead worker first to consume the HEAD resource
+        handles += [
+            actor_or_fn.options(
+                runtime_env={"env_vars": env_vars}, resources={"TPU": 1, tpu.name: 1, tpu_head: 1}
+            ).remote(*args, **kwargs)
+        ]
+        time.sleep(1)
+        # Schedule the remaining workers.
+        handles += [
+            actor_or_fn.options(runtime_env={"env_vars": env_vars}, resources={"TPU": 1, tpu.name: 1}).remote(
+                *args, **kwargs
+            )
+            for _ in range(device_count - 1)
+        ]
+      else:
+        # Schedule on the lead worker first to consume the HEAD resource
+        handles += [
+            actor_or_fn.options(resources={"TPU": 1, tpu.name: 1, tpu_head: 1}).remote(*args, **kwargs)
+        ]
+        time.sleep(1)
+        handles += [
+            actor_or_fn.options(resources={"TPU": 1, tpu.name: 1}).remote(*args, **kwargs) for _ in range(device_count - 1)
+        ]
+    return handles
+
 
   def remote(
       self,
@@ -248,12 +296,14 @@ def _remote_func_wrapper(
     f: Callable[[Any], Any],
     topology: Optional[Mapping[str, int]] = None,
     multislice = False,
+    device_mode = False,
     env: Optional[Mapping[str, Any]] = None,
     *f_args, **f_kwargs):
     return _manager.remote(
         actor_or_fn=f,
         topology=topology,
         multislice=multislice,
+        device_mode=device_mode,
         env=env,
         *f_args, **f_kwargs
     )
@@ -265,10 +315,12 @@ class _RemoteClassWrapper:
         cls: type,
         topology: Optional[Mapping[str, int]] = None,
         multislice = False,
+        device_mode = False,
         env: Optional[Mapping[str, Any]] = None):
         self.cls = cls
         self.topology = topology
         self.multislice = multislice
+        self.device_mode = device_mode
         self.env = env
 
     def __call__(self, *args, **kwargs):
@@ -276,6 +328,7 @@ class _RemoteClassWrapper:
             actor_or_fn=self.cls,
             topology=self.topology,
             multislice=self.multislice,
+            device_mode=self.device_mode,
             env=self.env,
             *args, **kwargs)
         return self
@@ -296,6 +349,7 @@ class _RemoteClassWrapper:
 def remote(
     topology: Optional[Mapping[str, int]] = None,
     multislice = False,
+    device_mode = False,
     env: Optional[Mapping[str, Any]] = None,
 ):
     def decorator(f_or_c: Union[Callable[Any, Any], type]):
@@ -305,12 +359,14 @@ def remote(
                 f=f_or_c,
                 topology=topology,
                 multislice=multislice,
+                device_mode=device_mode,
                 env=env)
         elif inspect.isclass(f_or_c):
             return _RemoteClassWrapper(
                 f_or_c,
                 topology=topology,
                 multislice=multislice,
+                device_mode=device_mode,
                 env=env)
         else:
             raise ValueError(
