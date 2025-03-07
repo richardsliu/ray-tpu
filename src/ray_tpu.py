@@ -169,7 +169,8 @@ class RayTpuManager:
       *args,
       **kwargs,
   ) -> List[Union[ray.actor.ActorHandle, ray._raylet.ObjectRef]]:
-  
+    from pjrt_util import init_multiprocess
+
     if env is None:
       env = {}
 
@@ -177,6 +178,11 @@ class RayTpuManager:
     tpu_head = f"TPU-{topology_id}-head"
     for tpu in tpu_info:
       device_count = tpu.chips_per_host * tpu.num_hosts
+
+      # Init PJRT
+      init_handle = init_multiprocess.options(resources={"TPU": 1, tpu.name: 1}).remote()
+      ray.get(init_handle)
+        
       if multislice:
         logging.info("Scheduling with multislice.")
         coordinator_port = 8081
